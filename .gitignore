@@ -3,3 +3,16 @@ dist/
 dist-tests/
 .npm-cache/
 *.tsbuildinfo
+coverage/
+.nyc_output/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tgz
+.env
+.env.*
+.DS_Store
+.vscode/
+.idea/

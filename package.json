@@ -1,7 +1,7 @@
 {
   "name": "distributed-cron-lock",
-  "version": "0.1.0",
-  "description": "Distributed cron scheduling for Node.js using Redis-backed locking.",
+  "version": "1.0.0",
+  "description": "Distributed cron scheduler for Node.js using Redis-backed locking.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,22 +14,39 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"const fs=require('node:fs'); for (const dir of ['dist','dist-tests']) fs.rmSync(dir,{recursive:true,force:true});\"",
+    "clean:dist": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true});\"",
+    "clean:tests": "node -e \"require('node:fs').rmSync('dist-tests',{recursive:true,force:true});\"",
+    "build": "npm run clean:dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test dist-tests/tests/*.test.js"
+    "test": "npm run clean:tests && tsc -p tsconfig.test.json && node --test dist-tests/tests/*.test.js",
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check && npm run build"
   },
   "keywords": [
     "cron",
-    "distributed-cron",
+    "scheduler",
+    "distributed",
     "distributed-lock",
     "redis",
-    "scheduler",
-    "typescript"
+    "nodejs",
+    "typescript",
+    "job-scheduler"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xEbrahim/CronRun.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xEbrahim/CronRun/issues"
+  },
+  "homepage": "https://github.com/0xEbrahim/CronRun#readme",
+  "sideEffects": false,
   "engines": {
     "node": ">=20"
   },

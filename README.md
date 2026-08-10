@@ -1,26 +1,38 @@
 # distributed-cron-lock
 
-Distributed cron scheduling for Node.js using Redis-backed locking.
+Distributed cron scheduler for Node.js using Redis-backed locking.
 
-Use this package when the same application runs on multiple replicas and each replica registers the same cron jobs in application code.
-
-Without coordination:
+Use this package when the same Node.js application runs on multiple replicas and each replica registers the same cron job in application code.
 
 ```text
-Replica A -> execute hourly job
-Replica B -> execute hourly job
-Replica C -> execute hourly job
-```
-
-With `distributed-cron-lock`:
-
-```text
-Replica A -> wins Redis lock -> execute
-Replica B -> lock unavailable -> skip
-Replica C -> lock unavailable -> skip
+3 application replicas
+       |
+       v
+same cron schedule fires
+       |
+       v
+without coordination: handler runs 3 times
+       |
+       v
+with distributed-cron-lock: one replica gets the Redis lock
+       |
+       v
+one executes, others skip
 ```
 
 Every replica still has a local cron scheduler. Redis coordinates which replica owns a scheduled occurrence.
+
+```text
+Replica A cron --\
+Replica B cron ---+--> Redis lock
+Replica C cron --/
+                     |
+                     v
+                  one winner
+                     |
+                     v
+                  handler
+```
 
 ## Installation
 
@@ -28,13 +40,29 @@ Every replica still has a local cron scheduler. Redis coordinates which replica 
 npm install distributed-cron-lock
 ```
 
+Install and configure a Redis client in your application as well. The examples use the official `redis` package:
+
+```sh
+npm install redis
+```
+
+## Requirements
+
+- Node.js 20 or newer.
+- Redis reachable by your application replicas.
+- A Redis client compatible with this package's `RedisLockClient` interface: `set(key, value, { NX: true, PX: ttl })` and `eval(script, { keys, arguments })`.
+
+The caller owns the Redis connection lifecycle. This package does not connect, quit, disconnect, or close the Redis client for you.
+
 ## Basic Usage
 
 ```ts
 import { createClient } from "redis";
 import { DistributedCron } from "distributed-cron-lock";
 
-const redis = createClient();
+const redis = createClient({
+  url: process.env.REDIS_URL,
+});
 
 await redis.connect();
 
@@ -52,34 +80,98 @@ cron.schedule(
     await syncUsers();
   },
 );
+```
 
+If ten replicas run this code, ten local cron timers fire, ten replicas attempt the same Redis lock, one wins, nine skip, and one handler executes while the lease remains valid.
+
+## TTL Override
+
+Configure a default TTL on the scheduler, or override it per job:
+
+```ts
 cron.schedule(
   "0 0 * * *",
   {
     key: "daily-report",
     ttl: 5 * 60_000,
   },
-  async () => {
-    await generateDailyReport();
-  },
+  generateDailyReport,
 );
 ```
 
-If ten replicas run this code, ten local cron timers fire, ten replicas attempt the same Redis lock, one wins, nine skip, and one handler executes.
+Choose a TTL greater than the expected maximum execution time of the protected job.
+
+## Error Handling
+
+Scheduled handlers are not directly awaited by user code, so errors are delivered to `onError`:
+
+```ts
+const cron = new DistributedCron({
+  redis,
+  defaultTtl: 60_000,
+  onError(error, context) {
+    console.error(
+      `Cron job ${context.key} failed during ${context.phase}`,
+      error,
+    );
+  },
+});
+```
+
+`context.phase` is one of:
+
+- `"acquire"`: Redis lock acquisition failed.
+- `"handler"`: the user handler threw.
+- `"release"`: ownership-safe release failed.
+
+If Redis cannot be reached during lock acquisition, the job does not execute. The library fails closed.
+
+If `onError` is not provided, the package writes the error and context to `console.error` to avoid unhandled promise rejections.
+
+## Start, Stop, And Destroy
+
+Jobs start when scheduled. The returned job handle controls the local cron task:
+
+```ts
+const job = cron.schedule(
+  "0 * * * *",
+  {
+    key: "hourly-report",
+  },
+  generateHourlyReport,
+);
+
+job.stop();
+job.start();
+job.destroy();
+```
+
+Calling `destroy()` permanently unregisters the local scheduler task and frees the key for reuse on that `DistributedCron` instance.
 
 ## Public API
 
 ```ts
 import {
   DistributedCron,
-  type DistributedCronJob,
-  type DistributedCronOptions,
-  type DistributedCronJobOptions,
+  DistributedCronConfigurationError,
+  DistributedLock,
+  DistributedLockValidationError,
+  type AcquireLockOptions,
   type DistributedCronErrorContext,
+  type DistributedCronErrorPhase,
+  type DistributedCronJob,
+  type DistributedCronJobOptions,
+  type DistributedCronOptions,
+  type DistributedLockOptions,
+  type Lock,
+  type RedisLockClient,
+  type RunExclusiveResult,
 } from "distributed-cron-lock";
 ```
 
-### `new DistributedCron(options)`
+`DistributedCron` is the primary V1 API. `DistributedLock` is exported as a lower-level lock primitive for callers that need the same Redis ownership-safe lock without cron scheduling.
+
+## `new DistributedCron(options)`
 
 ```ts
 const cron = new DistributedCron({
@@ -94,14 +186,12 @@ const cron = new DistributedCron({
 
 Options:
 
-- `redis`: Redis client with `set(key, value, { NX: true, PX: ttl })` and `eval(script, { keys, arguments })`.
+- `redis`: Redis client with `set()` and `eval()` methods compatible with `RedisLockClient`.
 - `prefix`: optional Redis key prefix. Defaults to `distributed-cron-lock`.
 - `defaultTtl`: optional TTL used when a job does not specify its own `ttl`.
 - `onError`: optional scheduled-job error callback.
 
-The caller owns the Redis connection lifecycle. This package never calls `quit()`, `disconnect()`, or `process.exit()`.
-
-### `cron.schedule(expression, options, handler)`
+## `cron.schedule(expression, options, handler)`
 
 ```ts
 const job = cron.schedule(
@@ -116,72 +206,27 @@ const job = cron.schedule(
 );
 ```
 
-`schedule()` validates the cron expression, job key, TTL, handler, and duplicate local keys immediately. Jobs start as soon as they are scheduled.
+`schedule()` validates the cron expression, job key, TTL, handler, and duplicate local keys immediately. If a job does not provide `ttl`, `defaultTtl` must be configured.
 
-The returned job handle is intentionally small:
+Duplicate keys are rejected only within the same `DistributedCron` instance. Multiple replicas should use the same key for the same distributed job so Redis can coordinate execution.
 
-```ts
-job.stop();
-job.start();
-job.destroy();
-```
+## Redis Ownership
 
-Calling `destroy()` permanently unregisters the local scheduler task and frees the key for reuse on that `DistributedCron` instance.
-
-## Runtime Flow
-
-For each scheduled occurrence:
+Lock acquisition uses Redis atomic set-if-not-exists with a lease:
 
 ```text
-cron expression fires
-        |
-        v
-Redis SET key token NX PX ttl
-        |
-        +-- lock unavailable -> skip
-        |
-        +-- Redis error -> do not execute, report phase = "acquire"
-        |
-        v
-handler executes
-        |
-        v
-Lua release compares ownership token before DEL
+SET key token NX PX ttl
 ```
 
-Lock contention is normal and does not throw. Redis command failures are different: the package fails closed and does not execute the handler.
+Each acquired lock stores a unique ownership token in Redis. Release uses an atomic Lua script that deletes the key only if the stored token still matches the releasing owner.
 
-## Error Handling
+This prevents a stale owner from deleting a newer owner's lock after TTL expiration and reacquisition.
 
-Scheduled handlers are not directly awaited by user code, so errors are delivered to `onError`:
+## Important TTL Limitation
 
-```ts
-const cron = new DistributedCron({
-  redis,
-  defaultTtl: 60_000,
-  onError(error, context) {
-    console.error(context.phase, context.key, error);
-  },
-});
-```
+V1 does not implement automatic lock renewal.
 
-`context.phase` is one of:
-
-- `"acquire"`: Redis lock acquisition failed.
-- `"handler"`: the user handler threw.
-- `"release"`: ownership-safe release failed.
-
-If `onError` is not provided, the package writes the error and context to `console.error`. This avoids unhandled promise rejections without configuring logging globally.
-
-Handler failures still attempt lock release. Release failures are reported separately.
-
-## TTL And Crash Recovery
-
-Every lock has a TTL. If a process crashes after acquiring a lock, Redis eventually expires the key and another replica can acquire it.
-
-Choose a TTL longer than the expected maximum execution time of the protected job.
-
-V1 uses a lease. If the TTL is shorter than the actual job duration, another replica can acquire the lock while the first job is still running:
+If a job runs longer than its lock TTL, the Redis lock can expire while the original handler is still executing. Another replica may then acquire the lock and start another execution.
 
 ```text
 12:00:00  Replica A acquires lock with TTL 30 seconds
@@ -190,17 +235,7 @@ V1 uses a lease. If the TTL is shorter than the actual job duration, another rep
 12:00:30-12:00:45  Replica A and Replica B may both be running
 ```
 
-This package does not guarantee exactly-once execution. It provides at-most-one active execution only while the Redis lease remains valid.
-
-## Ownership-Safe Release
-
-Each acquired lock stores a unique ownership token in Redis. Release uses an atomic Lua script that deletes the key only if the stored token still matches the releasing owner.
-
-This prevents a stale owner from deleting a newer owner's lock after TTL expiration and reacquisition.
-
-## Lower-Level Lock API
-
-`DistributedLock` remains exported as a lower-level compatibility API, but `DistributedCron` is the primary abstraction.
+This package does not guarantee exactly-once execution. Redis locking prevents concurrent replicas from executing while the lock lease remains valid.
 
 ## V1 Scope
 
