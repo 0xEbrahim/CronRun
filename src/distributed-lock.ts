@@ -82,11 +82,7 @@ export class DistributedLock {
       throw error;
     }
 
-    try {
-      await lock.release();
-    } catch (error) {
-      throw error;
-    }
+    await lock.release();
 
     return { acquired: true, value };
   }
