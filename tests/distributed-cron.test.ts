@@ -29,7 +29,7 @@ describe("DistributedCron", () => {
     await trigger(job);
 
     assert.equal(calls, 1);
-    assert.equal(redis.has("distributed-cron-lock:daily-report"), false);
+    assert.equal(redis.has("cronductor:daily-report"), false);
 
     job.destroy();
   });
@@ -128,7 +128,7 @@ describe("DistributedCron", () => {
     await trigger(job);
 
     assert.equal(calls, 2);
-    assert.equal(redis.has("distributed-cron-lock:repeating-job"), false);
+    assert.equal(redis.has("cronductor:repeating-job"), false);
 
     job.destroy();
   });
@@ -153,7 +153,7 @@ describe("DistributedCron", () => {
     await trigger(job);
 
     assert.equal(redis.evalCalls, 1);
-    assert.equal(redis.has("distributed-cron-lock:failing-handler"), false);
+    assert.equal(redis.has("cronductor:failing-handler"), false);
     assert.equal(errors.length, 1);
     assert.equal(errors[0]?.error, expected);
     assert.equal(errors[0]?.context.phase, "handler");
@@ -221,8 +221,8 @@ describe("DistributedCron", () => {
 
   it("keeps ownership-safe release behavior for expired owners", async () => {
     const redis = new FakeRedisLockClient();
-    const first = new DistributedLock({ redis, prefix: "distributed-cron-lock" });
-    const second = new DistributedLock({ redis, prefix: "distributed-cron-lock" });
+    const first = new DistributedLock({ redis, prefix: "cronductor" });
+    const second = new DistributedLock({ redis, prefix: "cronductor" });
 
     const firstLock = await first.acquire("ownership", { ttl: 10 });
     assert.ok(firstLock);
@@ -233,7 +233,7 @@ describe("DistributedCron", () => {
     assert.ok(secondLock);
 
     assert.equal(await firstLock.release(), false);
-    assert.equal(redis.has("distributed-cron-lock:ownership"), true);
+    assert.equal(redis.has("cronductor:ownership"), true);
     assert.equal(await secondLock.release(), true);
   });
 
@@ -265,7 +265,7 @@ describe("DistributedCron", () => {
 
     assert.equal(firstCalls, 1);
     assert.equal(secondCalls, 1);
-    assert.equal(redis.has("distributed-cron-lock:ttl-job"), false);
+    assert.equal(redis.has("cronductor:ttl-job"), false);
 
     firstJob.destroy();
     secondJob.destroy();

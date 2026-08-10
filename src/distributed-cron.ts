@@ -10,7 +10,7 @@ import type {
 } from "./types.js";
 import { validatePrefix, validateRedisClient } from "./validation.js";
 
-const DEFAULT_PREFIX = "distributed-cron-lock";
+const DEFAULT_PREFIX = "cronductor";
 
 export class DistributedCron {
   readonly #lockManager: DistributedLock;

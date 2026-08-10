@@ -1,4 +1,4 @@
-# distributed-cron-lock
+# cronductor
 
 Distributed cron scheduler for Node.js using Redis-backed locking.
 
@@ -14,7 +14,7 @@ same cron schedule fires
 without coordination: handler runs 3 times
        |
        v
-with distributed-cron-lock: one replica gets the Redis lock
+with cronductor: one replica gets the Redis lock
        |
        v
 one executes, others skip
@@ -37,7 +37,7 @@ Replica C cron --/
 ## Installation
 
 ```sh
-npm install distributed-cron-lock
+npm install cronductor
 ```
 
 Install and configure a Redis client in your application as well. The examples use the official `redis` package:
@@ -58,7 +58,7 @@ The caller owns the Redis connection lifecycle. This package does not connect, q
 
 ```ts
 import { createClient } from "redis";
-import { DistributedCron } from "distributed-cron-lock";
+import { DistributedCron } from "cronductor";
 
 const redis = createClient({
   url: process.env.REDIS_URL,
@@ -166,7 +166,7 @@ import {
   type Lock,
   type RedisLockClient,
   type RunExclusiveResult,
-} from "distributed-cron-lock";
+} from "cronductor";
 ```
 
 `DistributedCron` is the primary V1 API. `DistributedLock` is exported as a lower-level lock primitive for callers that need the same Redis ownership-safe lock without cron scheduling.
@@ -187,7 +187,7 @@ const cron = new DistributedCron({
 Options:
 
 - `redis`: Redis client with `set()` and `eval()` methods compatible with `RedisLockClient`.
-- `prefix`: optional Redis key prefix. Defaults to `distributed-cron-lock`.
+- `prefix`: optional Redis key prefix. Defaults to `cronductor`.
 - `defaultTtl`: optional TTL used when a job does not specify its own `ttl`.
 - `onError`: optional scheduled-job error callback.
 
