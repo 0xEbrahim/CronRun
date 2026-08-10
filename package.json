@@ -1,5 +1,5 @@
 {
-  "name": "CronRun",
+  "name": "Redis-Cron-Run",
   "version": "1.0.0",
   "description": "Distributed cron scheduler for Node.js using Redis-backed locking.",
   "type": "module",
