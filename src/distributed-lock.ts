@@ -8,6 +8,7 @@ import type {
   RedisLockClient,
   RunExclusiveResult,
 } from "./types.js";
+import { validateKey, validatePrefix, validateRedisClient, validateTtl } from "./validation.js";
 
 const DEFAULT_PREFIX = "distributed-cron-lock";
 
@@ -20,15 +21,7 @@ export class DistributedLock {
       throw new DistributedLockValidationError("DistributedLock options are required.");
     }
 
-    if (
-      !options.redis ||
-      typeof options.redis.set !== "function" ||
-      typeof options.redis.eval !== "function"
-    ) {
-      throw new DistributedLockValidationError(
-        "A Redis client with set() and eval() methods is required.",
-      );
-    }
+    validateRedisClient(options.redis);
 
     const prefix = options.prefix ?? DEFAULT_PREFIX;
     validatePrefix(prefix);
@@ -100,23 +93,5 @@ export class DistributedLock {
 
   #buildKey(key: string): string {
     return `${this.#prefix}:${key}`;
-  }
-}
-
-function validateKey(key: unknown): asserts key is string {
-  if (typeof key !== "string" || key.trim().length === 0) {
-    throw new DistributedLockValidationError("Lock key must be a non-empty string.");
-  }
-}
-
-function validateTtl(ttl: unknown): asserts ttl is number {
-  if (typeof ttl !== "number" || !Number.isFinite(ttl) || !Number.isInteger(ttl) || ttl <= 0) {
-    throw new DistributedLockValidationError("Lock TTL must be a finite positive integer.");
-  }
-}
-
-function validatePrefix(prefix: unknown): asserts prefix is string {
-  if (typeof prefix !== "string" || prefix.trim().length === 0) {
-    throw new DistributedLockValidationError("Lock prefix must be a non-empty string.");
   }
 }

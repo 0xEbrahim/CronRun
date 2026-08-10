@@ -22,6 +22,32 @@ export interface DistributedLockOptions {
   readonly prefix?: string;
 }
 
+export type DistributedCronErrorPhase = "acquire" | "handler" | "release";
+
+export interface DistributedCronErrorContext {
+  readonly key: string;
+  readonly expression: string;
+  readonly phase: DistributedCronErrorPhase;
+}
+
+export interface DistributedCronOptions {
+  readonly redis: RedisLockClient;
+  readonly prefix?: string;
+  readonly defaultTtl?: number;
+  readonly onError?: (error: unknown, context: DistributedCronErrorContext) => void;
+}
+
+export interface DistributedCronJobOptions {
+  readonly key: string;
+  readonly ttl?: number;
+}
+
+export interface DistributedCronJob {
+  start(): void;
+  stop(): void;
+  destroy(): void;
+}
+
 export interface AcquireLockOptions {
   readonly ttl: number;
 }

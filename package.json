@@ -1,7 +1,7 @@
 {
   "name": "distributed-cron-lock",
   "version": "0.1.0",
-  "description": "Distributed Redis locks for coordinating scheduled Node.js jobs across replicas.",
+  "description": "Distributed cron scheduling for Node.js using Redis-backed locking.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,6 +23,7 @@
   },
   "keywords": [
     "cron",
+    "distributed-cron",
     "distributed-lock",
     "redis",
     "scheduler",
@@ -30,7 +31,10 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20"
+  },
+  "dependencies": {
+    "node-cron": "^4.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
